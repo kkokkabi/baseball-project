@@ -1,0 +1,36 @@
+app.get('/stats/:name', async (req, res) => {
+    // ... DB에서 데이터를 가져오는 과정 생략 (s에 결과가 담겼다고 가정) ...
+    
+    const { at_bats, singles, doubles, triples, home_runs, walks } = s;
+
+    // 1. 루타수 계산
+    const totalBases = singles + (doubles * 2) + (triples * 3) + (home_runs * 4);
+    
+    // 2. 타율(AVG)
+    const totalHits = singles + doubles + triples + home_runs;
+    const avg = (totalHits / at_bats).toFixed(3);
+
+    // 3. 장타율(SLG)
+    const slg = (totalBases / at_bats).toFixed(3);
+
+    // 4. 출루율(OBP) - 분모가 0이 되는 것을 방지
+    const obp = ((totalHits + walks) / (at_bats + walks)).toFixed(3);
+
+    // 5. OPS
+    const ops = (parseFloat(obp) + parseFloat(slg)).toFixed(3);
+
+    // 6. wOBA (2024년 KBO 가중치 예시값 적용)
+    const woba = ((0.69 * walks + 0.876 * singles + 1.232 * doubles + 1.552 * triples + 2.02 * home_runs) 
+                  / (at_bats + walks)).toFixed(3);
+
+    res.send(`
+        <h1>${s.name} 세이버메트릭스 리포트</h1>
+        <ul>
+            <li>타율(AVG): ${avg}</li>
+            <li>출루율(OBP): ${obp}</li>
+            <li>장타율(SLG): ${slg}</li>
+            <li><b>OPS: ${ops}</b></li>
+            <li><b>wOBA: ${woba}</b></li>
+        </ul>
+    `);
+});
