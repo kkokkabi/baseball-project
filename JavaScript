@@ -34,3 +34,14 @@ app.get('/stats/:name', async (req, res) => {
         </ul>
     `);
 });
+app.post('/add-player', async (req, res) => {
+    const { name, team, ab, s, d, t, hr, bb } = req.body; 
+    // s: 단타, d: 2루타, t: 3루타 ...
+    
+    // 쿼리문 수정
+    const query = `
+        INSERT INTO hitter_stats (player_id, at_bats, singles, doubles, triples, home_runs, walks) 
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `;
+    // ... 실행 로직 ...
+});
