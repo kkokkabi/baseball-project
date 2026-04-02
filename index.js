@@ -1,3 +1,4 @@
+app.use(express.static('public')); // public 폴더 안의 파일을 기본으로 보여줌
 require('dotenv').config();
 const { Client } = require('pg');
 const express = require('express');
