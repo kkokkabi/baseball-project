@@ -109,5 +109,4 @@ app.get('/stats/:name', async (req, res) => {
 // 서버 시작
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`서버 실행 중: http://localhost:${port}`));
-// 검색어의 앞뒤 공백을 제거(.trim())하도록 수정
-const result = await client.query(query, [req.params.name.trim()]);
+
