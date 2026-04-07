@@ -105,6 +105,56 @@ app.post('/add-player', async (req, res) => {
         res.json({ message: `${name} 선수 데이터 저장 완료!` });
     } catch (err) {
         res.status(500).json({ error: err.message });
+        app.get('/stats/:name', async (req, res) => {
+    const client = new Client({ connectionString, ssl: { rejectUnauthorized: false } });
+    try {
+        await client.connect();
+        const query = `
+            SELECT p.name, s.at_bats, s.s1, s.s2, s.s3, s.hr, s.walks 
+            FROM players p 
+            JOIN hitter_stats s ON p.id = s.player_id 
+            WHERE p.name = $1
+        `;
+        const result = await client.query(query, [req.params.name]);
+
+        if (result.rows.length > 0) {
+            const s = result.rows[0];
+            
+            // 전체 안타수 = 1루타 + 2루타 + 3루타 + 홈런
+            const totalHits = s.s1 + s.s2 + s.s3 + s.hr;
+            
+            // 타율 (AVG)
+            const avg = (totalHits / s.at_bats).toFixed(3);
+            
+            // 출루율 (OBP)
+            const obp = ((totalHits + s.walks) / (s.at_bats + s.walks)).toFixed(3);
+            
+            // 장타율 (SLG) 계산
+            const totalBases = (s.s1 * 1) + (s.s2 * 2) + (s.s3 * 3) + (s.hr * 4);
+            const slg = (totalBases / s.at_bats).toFixed(3);
+            
+            // OPS (출루율 + 장타율)
+            const ops = (parseFloat(obp) + parseFloat(slg)).toFixed(3);
+
+            res.send(`
+                <h1>${s.name} 분석 결과</h1>
+                <p><b>타율(AVG):</b> ${avg}</p>
+                <p><b>출루율(OBP):</b> ${obp}</p>
+                <p><b>장타율(SLG):</b> ${slg}</p>
+                <p><b>OPS:</b> ${ops}</p>
+                <hr>
+                <p>상세: ${s.at_bats}타수 ${totalHits}안타(${s.hr}홈런) ${s.walks}볼넷</p>
+            `);
+        } else {
+            res.status(404).send("선수를 찾을 수 없습니다.");
+        }
+    } catch (err) {
+        res.status(500).send(err.message);
+    } finally {
+        await client.end();
+    }
+});
+        
     } finally {
         await client.end();
     }
