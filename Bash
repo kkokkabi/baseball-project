@@ -4,6 +4,4 @@ git commit -m "Initial commit: Baseball stats API"
 git branch -M main
 git remote add origin https://github.com/내아이디/내저장소이름.git
 git push -u origin main
-git add .
-git commit -m "Add main page route"
-git push origin main
+
