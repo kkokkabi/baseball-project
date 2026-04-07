@@ -1,7 +1,18 @@
-git init
-git add .
-git commit -m "Initial commit: Baseball stats API"
-git branch -M main
-git remote add origin https://github.com/내아이디/내저장소이름.git
-git push -u origin main
+// 1. 모듈 불러오기
+const express = require('express');
+
+// 2. app 객체 초기화 (이게 반드시 먼저 실행되어야 합니다!)
+const app = express();
+
+// 3. 미들웨어 설정 (이제 app을 사용할 수 있습니다)
+app.use(express.static('public'));
+
+// 4. 나머지 라우트 및 서버 실행
+app.get('/', (req, res) => {
+  res.send('Hello World!');
+});
+
+app.listen(3000, () => {
+  console.log('Server is running on port 3000');
+});
 
