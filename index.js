@@ -83,3 +83,29 @@ app.get('/stats/:name', async (req, res) => {
 // 5. 서버 실행
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`서버 실행 중: Port ${port}`));
+app.post('/add-player', async (req, res) => {
+    const client = new Client({ connectionString, ssl: { rejectUnauthorized: false } });
+    // s1, s2, s3, hr를 각각 받습니다.
+    const { name, team, ab, s1, s2, s3, hr, bb } = req.body; 
+
+    try {
+        await client.connect();
+        const playerRes = await client.query(
+            'INSERT INTO players (name, team) VALUES ($1, $2) RETURNING id',
+            [name, team]
+        );
+        const playerId = playerRes.rows[0].id;
+
+        // 세분화된 안타 데이터를 저장
+        await client.query(
+            'INSERT INTO hitter_stats (player_id, at_bats, s1, s2, s3, hr, walks) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+            [playerId, ab, s1, s2, s3, hr, bb]
+        );
+
+        res.json({ message: `${name} 선수 데이터 저장 완료!` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    } finally {
+        await client.end();
+    }
+});
