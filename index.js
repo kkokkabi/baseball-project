@@ -45,7 +45,10 @@ app.post('/add-player', async (req, res) => {
 });
 
 // [2. 세이버메트릭스(타율, 출루율, 장타율, OPS) 조회 API]
-app.get('/stats/:name', async (req, res) => {
+ =app.get('/stats/:name', async (req, res) => { // async 추가!
+    await client.connect(); 
+    // ...
+}); {
     const client = new Client({ 
         connectionString, 
         ssl: { rejectUnauthorized: false } 
