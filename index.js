@@ -1,9 +1,4 @@
-원하시는 대로 '연도(Year)' 개념을 추가하여 선수의 연도별 성적을 관리하고 조회할 수 있도록 수정한 전체 코드를 작성해 드립니다.
 
-이 코드에는 데이터 저장 시 이미 존재하는 선수인지 확인하는 로직을 추가하여, 데이터가 꼬이거나 "있는데 없다고 뜨는" 문제를 방지하도록 보완했습니다.
-
-⚾ 연도별 성적 관리가 가능한 index.js 전체 코드
-JavaScript
 require('dotenv').config();
 const express = require('express');
 const { Pool } = require('pg');
