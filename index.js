@@ -53,6 +53,36 @@ app.get('/stats/:name', async (req, res) => {
 
     try {
         await client.connect();
+        const playerName = req.params.name.trim(); // 공백 제거
+        
+        // 쿼리 시 대소문자 무시(ILIKE) 사용 (영문일 경우 유용)
+        const query = `
+            SELECT p.name, s.at_bats, s.s1, s.s2, s.s3, s.hr, s.walks 
+            FROM players p 
+            JOIN hitter_stats s ON p.id = s.player_id 
+            WHERE p.name ILIKE $1
+        `;
+        
+        const result = await client.query(query, [playerName]);
+
+        console.log("검색된 결과 개수:", result.rows.length); // 디버깅 로그
+
+        if (result.rows.length > 0) {
+            // ... (기존 계산 로직)
+        } else {
+            // 선수가 없는 건지, 데이터가 없는 건지 상세히 응답
+            res.status(404).send(`'${playerName}' 선수를 찾을 수 없거나 상세 성적이 등록되지 않았습니다.`);
+        }
+    } catch (err) {
+        console.error("DB 에러:", err);
+        res.status(500).send("서버 오류 발생");
+    } finally {
+        await client.end();
+    }
+});
+
+    try {
+        await client.connect();
         // DB에서 s1, s2, s3, hr 정보를 가져옵니다.
         const query = `
             SELECT p.name, s.at_bats, s.s1, s.s2, s.s3, s.hr, s.walks 
