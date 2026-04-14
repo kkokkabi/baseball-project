@@ -1,4 +1,91 @@
+require('dotenv').config();
+const express = require('express');
+const { Pool } = require('pg');
 
+const app = express();
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+});
+
+app.use(express.static('public')); 
+app.use(express.json());
+
+// [선수 확인 및 ID 반환 공통 함수]
+async function getPlayerId(name, team) {
+    let playerCheck = await pool.query('SELECT id FROM players WHERE name = $1', [name]);
+    if (playerCheck.rows.length > 0) return playerCheck.rows[0].id;
+    
+    const newPlayer = await pool.query(
+        'INSERT INTO players (name, team) VALUES ($1, $2) RETURNING id',
+        [name, team]
+    );
+    return newPlayer.rows[0].id;
+}
+
+// [1. 투수 데이터 추가 API]
+app.post('/add-pitcher', async (req, res) => {
+    const { name, team, year, ip, er, h, bb, so } = req.body;
+    try {
+        const playerId = await getPlayerId(name, team);
+        await pool.query(
+            'INSERT INTO pitcher_stats (player_id, year, innings_pitched, earned_runs, hits_allowed, walks_allowed, strikeouts) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+            [playerId, year, ip, er, h, bb, so]
+        );
+        res.json({ success: true, message: `${name} 투수의 ${year}년 데이터 저장 완료!` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// [2. 투수 성적 조회 API (ERA, WHIP 계산)]
+app.get('/stats/pitcher/:name/:year', async (req, res) => {
+    try {
+        const { name, year } = req.params;
+        const query = `
+            SELECT p.name, p.team, s.* FROM players p 
+            JOIN pitcher_stats s ON p.id = s.player_id 
+            WHERE p.name = $1 AND s.year = $2
+        `;
+        const result = await pool.query(query, [name.trim(), year]);
+
+        if (result.rows.length > 0) {
+            const s = result.rows[0];
+            
+            // --- 투수 지표 계산 ---
+            const ip = parseFloat(s.innings_pitched) || 1;
+            // ERA (방어율): (자책점 * 9) / 이닝
+            const era = ((s.earned_runs * 9) / ip).toFixed(2);
+            // WHIP (이닝당 출루허용): (피안타 + 볼넷) / 이닝
+            const whip = ((s.hits_allowed + s.walks_allowed) / ip).toFixed(2);
+
+            res.send(`
+                <div style="font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; border: 2px solid #28a745; border-radius: 10px;">
+                    <h2 style="text-align: center;">⚾ 투수 ${s.name} (${s.year}년)</h2>
+                    <p style="text-align: center;">소속: ${s.team}</p>
+                    <hr>
+                    <div style="background: #f0fff0; padding: 15px; border-radius: 8px;">
+                        <p><b>평균자책점 (ERA):</b> <span style="font-size: 1.2em; color: red;">${era}</span></p>
+                        <p><b>WHIP:</b> ${whip}</p>
+                        <p><b>탈삼진 (SO):</b> ${s.strikeouts}</p>
+                    </div>
+                    <hr>
+                    <p>상세: ${ip}이닝 ${s.earned_runs}자책 ${s.hits_allowed}피안타</p>
+                    <button onclick="window.history.back()" style="width: 100%; padding: 10px; cursor: pointer;">뒤로가기</button>
+                </div>
+            `);
+        } else {
+            res.status(404).send("투수 데이터를 찾을 수 없습니다.");
+        }
+    } catch (err) {
+        res.status(500).send("서버 오류");
+    }
+});
+
+// (기존 타자 API는 그대로 유지하세요...)
+
+const port = process.env.PORT || 3000;
+app.listen(port, () => console.log(`서버 작동 중: ${port}`));
 require('dotenv').config();
 const express = require('express');
 const { Pool } = require('pg');
