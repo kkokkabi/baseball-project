@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KBO 세이버메트릭스 검색기</title>
+    <style>
+        /* 깔끔한 메인 중앙 배치 스타일 */
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+
+        .search-container {
+            width: 90%;
+            max-width: 600px;
+            text-align: center;
+        }
+
+        h1 {
+            color: #1d3557;
+            font-size: 2.5rem;
+            margin-bottom: 30px;
+        }
+
+        .search-box {
+            position: relative;
+            width: 100%;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 15px 25px;
+            font-size: 1.1rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 30px;
+            outline: none;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            transition: all 0.3s ease;
+            box-sizing: border-box;
+        }
+
+        input[type="text"]:focus {
+            border-color: #457b9d;
+            box-shadow: 0 6px 12px rgba(0,0,0,0.1);
+        }
+
+        /* 실시간 검색 결과 창 */
+        #searchResultList {
+            display: none;
+            position: absolute;
+            top: 60px;
+            left: 0;
+            width: 100%;
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            z-index: 1000;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .result-item {
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            border-bottom: 1px solid #f0f0f0;
+            transition: background 0.2s;
+        }
+
+        .result-item:hover {
+            background-color: #f8f9fa;
+        }
+
+        .result-item:last-child {
+            border-bottom: none;
+        }
+
+        .player-info {
+            text-align: left;
+        }
+
+        .player-name {
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+
+        .player-meta {
+            color: #666;
+            font-size: 0.9rem;
+            margin-left: 10px;
+        }
+
+        .badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            color: white;
+        }
+
+        .hitter-badge { background-color: #007bff; }
+        .pitcher-badge { background-color: #28a745; }
+
+        .no-result {
+            padding: 20px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="search-container">
+        <h1>⚾ Stats Search</h1>
+        <div class="search-box">
+            <input type="text" id="searchInput" oninput="handleSearch()" placeholder="선수 이름을 입력해 주세요..." autocomplete="off" autofocus>
+            <div id="searchResultList"></div>
+        </div>
+    </div>
+
+    <script>
+        async function handleSearch() {
+            const name = document.getElementById('searchInput').value.trim();
+            const resultList = document.getElementById('searchResultList');
+
+            if (name.length < 1) {
+                resultList.style.display = 'none';
+                return;
+            }
+
+            try {
+                // 이전에 만든 백엔드 API 호출
+                const response = await fetch(`/search/player/${encodeURIComponent(name)}`);
+                const players = await response.json();
+
+                if (players.length > 0) {
+                    resultList.innerHTML = '';
+                    players.forEach(p => {
+                        const item = document.createElement('div');
+                        item.className = 'result-item';
+                        
+                        const badgeClass = p.type === 'hitter' ? 'hitter-badge' : 'pitcher-badge';
+                        const typeName = p.type === 'hitter' ? '타자' : '투수';
+
+                        item.innerHTML = `
+                            <div class="player-info">
+                                <span class="player-name">${p.name}</span>
+                                <span class="player-meta">${p.year}년 · ${p.team}</span>
+                            </div>
+                            <span class="badge ${badgeClass}">${typeName}</span>
+                        `;
+
+                        item.onclick = () => {
+                            location.href = `/stats/${p.type}/${p.name}/${p.year}`;
+                        };
+
+                        resultList.appendChild(item);
+                    });
+                    resultList.style.display = 'block';
+                } else {
+                    resultList.innerHTML = '<div class="no-result">데이터가 없습니다.</div>';
+                    resultList.style.display = 'block';
+                }
+            } catch (err) {
+                console.error('Search error:', err);
+            }
+        }
+
+        // 검색창 외 클릭 시 닫기
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.search-box')) {
+                document.getElementById('searchResultList').style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
