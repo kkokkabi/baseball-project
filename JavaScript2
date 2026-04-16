@@ -1,0 +1,60 @@
+async function handleSearch() {
+    const name = document.getElementById('searchInput').value.trim();
+    const resultList = document.getElementById('searchResultList');
+
+    // 2글자 미만이면 결과창을 닫음
+    if (name.length < 1) {
+        resultList.style.display = 'none';
+        return;
+    }
+
+    try {
+        const response = await fetch(`/search/player/${encodeURIComponent(name)}`);
+        const players = await response.json();
+
+        if (players.length > 0) {
+            resultList.innerHTML = ''; // 기존 목록 초기화
+            players.forEach(p => {
+                const item = document.createElement('div');
+                item.style.padding = '10px';
+                item.style.borderBottom = '1px solid #eee';
+                item.style.cursor = 'pointer';
+                
+                // 타자/투수에 따른 아이콘 및 텍스트 설정
+                const typeIcon = p.type === 'hitter' ? '🏏 타자' : '⚾ 투수';
+                const typeColor = p.type === 'hitter' ? '#007bff' : '#28a745';
+
+                item.innerHTML = `
+                    <div style="display: flex; justify-content: space-between;">
+                        <span><strong>${p.name}</strong> (${p.year}년 / ${p.team})</span>
+                        <span style="color: ${typeColor}; font-size: 0.85em;">${typeIcon}</span>
+                    </div>
+                `;
+
+                // 클릭 시 상세 페이지로 이동
+                item.onclick = () => {
+                    location.href = `/stats/${p.type}/${p.name}/${p.year}`;
+                };
+                
+                // 마우스 오버 효과
+                item.onmouseover = () => item.style.backgroundColor = '#f8f9fa';
+                item.onmouseout = () => item.style.backgroundColor = 'white';
+
+                resultList.appendChild(item);
+            });
+            resultList.style.display = 'block';
+        } else {
+            resultList.innerHTML = '<div style="padding: 10px; color: #999;">검색 결과가 없습니다.</div>';
+            resultList.style.display = 'block';
+        }
+    } catch (err) {
+        console.error('검색 오류:', err);
+    }
+}
+
+// 클릭 외 영역 선택 시 결과창 닫기
+document.addEventListener('click', (e) => {
+    if (e.target.id !== 'searchInput') {
+        document.getElementById('searchResultList').style.display = 'none';
+    }
+});
