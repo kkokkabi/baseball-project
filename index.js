@@ -75,7 +75,7 @@ app.get('/ranking/:type', async (req, res) => {
 // 2. 상세 스탯 조회 (단일 시즌 & 통산)
 // ==========================================
 
-// [단일 시즌] 상세 스탯 조회 (디버깅 강화 버전)
+// [단일 시즌] 상세 조회
 app.get('/stats/:type/:name/:year', async (req, res) => {
     const { type, name, year } = req.params;
     const table = type === 'hitter' ? 'hitter_stats' : 'pitcher_stats';
@@ -88,9 +88,7 @@ app.get('/stats/:type/:name/:year', async (req, res) => {
         `;
         const result = await pool.query(query, [name.trim(), year]);
 
-        if (result.rows.length === 0) {
-            return res.status(404).send("해당 연도의 데이터를 찾을 수 없습니다.");
-        }
+        if (result.rows.length === 0) return res.status(404).send("데이터 없음");
 
         const s = result.rows[0];
         if (type === 'hitter') {
@@ -108,25 +106,24 @@ app.get('/stats/:type/:name/:year', async (req, res) => {
             res.send(renderPitcherHTML(s, era, whip, ip));
         }
     } catch (err) {
-        console.error("조회 오류 상세:", err);
-        res.status(500).send(`서버 오류 발생: ${err.message}`);
+        res.status(500).send(`서버 오류: ${err.message}`);
     }
 });
 
-// [통산 기록] 조회 API
+// [통산 기록] 조회
 app.get('/stats/:type/career/:name', async (req, res) => {
     const { type, name } = req.params;
     try {
         let query;
         if (type === 'hitter') {
             query = `
-                SELECT p.name, p.team, COUNT(s.year) as seasons,
+                SELECT p.name, p.team, COUNT(s.year) as seasons, SUM(s.games_played) as total_gp,
                 SUM(s.at_bats) as ab, SUM(s.s1) as s1, SUM(s.s2) as s2, SUM(s.s3) as s3, SUM(s.hr) as hr, SUM(s.walks) as bb
                 FROM players p JOIN hitter_stats s ON p.id = s.player_id 
                 WHERE p.name = $1 GROUP BY p.id, p.name, p.team`;
         } else {
             query = `
-                SELECT p.name, p.team, COUNT(s.year) as seasons,
+                SELECT p.name, p.team, COUNT(s.year) as seasons, SUM(s.games_played) as total_gp,
                 SUM(s.innings_pitched) as ip, SUM(s.earned_runs) as er, SUM(s.strikeouts) as so
                 FROM players p JOIN pitcher_stats s ON p.id = s.player_id 
                 WHERE p.name = $1 GROUP BY p.id, p.name, p.team`;
@@ -134,9 +131,11 @@ app.get('/stats/:type/career/:name', async (req, res) => {
         const result = await pool.query(query, [name.trim()]);
         if (result.rows.length > 0) {
             const s = result.rows[0];
-            const content = type === 'hitter' ? `통산 타석: ${s.ab} | 홈런: ${s.hr}` : `통산 이닝: ${s.ip} | 탈삼진: ${s.so}`;
+            const content = type === 'hitter' 
+                ? `통산 ${s.total_gp || 0}경기 | 타석: ${s.ab} | 홈런: ${s.hr}` 
+                : `통산 ${s.total_gp || 0}경기 | 이닝: ${s.ip} | 탈삼진: ${s.so}`;
             res.send(renderCareerHTML(s, type === 'hitter' ? '타자' : '투수', content, type === 'hitter' ? '#007bff' : '#28a745'));
-        } else { res.status(404).send("통산 기록이 없습니다."); }
+        } else { res.status(404).send("기록 없음"); }
     } catch (err) { res.status(500).send("서버 오류"); }
 });
 
@@ -145,19 +144,25 @@ app.get('/stats/:type/career/:name', async (req, res) => {
 // ==========================================
 
 app.post('/add-pitcher', async (req, res) => {
-    const { name, team, year, ip, er, h, bb, so } = req.body;
+    const { name, team, year, ip, er, h, bb, so, gp } = req.body;
     try {
         const playerId = await getPlayerId(name, team);
-        await pool.query('INSERT INTO pitcher_stats (player_id, year, innings_pitched, earned_runs, hits_allowed, walks_allowed, strikeouts) VALUES ($1,$2,$3,$4,$5,$6,$7)', [playerId, year, ip, er, h, bb, so]);
+        await pool.query(
+            'INSERT INTO pitcher_stats (player_id, year, innings_pitched, earned_runs, hits_allowed, walks_allowed, strikeouts, games_played) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', 
+            [playerId, year, ip, er, h, bb, so, gp || 0]
+        );
         res.json({ success: true, message: "저장 완료" });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/add-hitter', async (req, res) => {
-    const { name, team, year, ab, s1, s2, s3, hr, bb } = req.body;
+    const { name, team, year, ab, s1, s2, s3, hr, bb, gp } = req.body;
     try {
         const playerId = await getPlayerId(name, team);
-        await pool.query('INSERT INTO hitter_stats (player_id, year, at_bats, s1, s2, s3, hr, walks) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [playerId, year, ab, s1, s2, s3, hr, bb]);
+        await pool.query(
+            'INSERT INTO hitter_stats (player_id, year, at_bats, s1, s2, s3, hr, walks, games_played) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)', 
+            [playerId, year, ab, s1, s2, s3, hr, bb, gp || 0]
+        );
         res.json({ success: true, message: "저장 완료" });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -170,7 +175,7 @@ function renderPitcherHTML(s, era, whip, ip) {
     return `
         <div style="font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; border: 2px solid #28a745; border-radius: 10px;">
             <h2 style="text-align: center;">⚾ 투수 ${s.name} (${s.year})</h2>
-            <p style="text-align: center;">소속: ${s.team}</p><hr>
+            <p style="text-align: center;">소속: ${s.team} | <b>경기수: ${s.games_played || 0}</b></p><hr>
             <div style="background: #f0fff0; padding: 15px; border-radius: 8px;">
                 <p><b>ERA:</b> <span style="color: red;">${era}</span></p>
                 <p><b>WHIP:</b> ${whip}</p>
@@ -184,11 +189,10 @@ function renderHitterHTML(s, avg, obp, slg, ops, totalHits, ab) {
     return `
         <div style="font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; border: 2px solid #007bff; border-radius: 10px;">
             <h2 style="text-align: center;">⚾ 타자 ${s.name} (${s.year})</h2>
-            <p style="text-align: center;">소속: ${s.team}</p><hr>
+            <p style="text-align: center;">소속: ${s.team} | <b>경기수: ${s.games_played || 0}</b></p><hr>
             <div style="background: #f0f7ff; padding: 15px; border-radius: 8px;">
                 <p><b>AVG:</b> ${avg} | <b>OBP:</b> ${obp}</p>
                 <p><b>SLG:</b> ${slg} | <b style="color:blue;">OPS: ${ops}</b></p>
-                <p><b>Hits:</b> ${totalHits} / <b>AB:</b> ${ab}</p>
             </div><hr>
             <button onclick="window.history.back()" style="width: 100%; padding: 10px;">뒤로가기</button>
         </div>`;
@@ -198,7 +202,7 @@ function renderCareerHTML(s, type, content, color) {
     return `
         <div style="font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; border: 4px double ${color}; border-radius: 15px;">
             <h2 style="text-align: center;">🏆 ${s.name} 통산 (${type})</h2>
-            <p style="text-align: center;">소속: ${s.team} | ${s.seasons}시즌 기록</p><hr>
+            <p style="text-align: center;">소속: ${s.team} | ${s.seasons}시즌 활약</p><hr>
             <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; text-align: center;">
                 <h4>${content}</h4>
             </div><hr>
