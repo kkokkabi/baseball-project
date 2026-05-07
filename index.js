@@ -26,7 +26,7 @@ async function getPlayerId(name, team) {
 // 1. 검색 및 순위 기능
 // ==========================================
 
-// 통합 검색 API
+// 통합 검색 API (타자/투수 구분)
 app.get('/search/player/:name', async (req, res) => {
     try {
         const searchTerm = `%${req.params.name.trim()}%`; 
@@ -45,7 +45,7 @@ app.get('/search/player/:name', async (req, res) => {
     } catch (err) { res.status(500).json({ error: "검색 중 오류 발생" }); }
 });
 
-// 타자 순위 API (타율/출루율 계산 시 s1만 반영하는 규칙 적용)
+// 타자 순위 API (s1 기반 규칙 적용)
 app.get('/ranking/hitter', async (req, res) => {
     try {
         const query = `
@@ -60,7 +60,7 @@ app.get('/ranking/hitter', async (req, res) => {
 });
 
 // ==========================================
-// 2. 상세 스탯 조회 (단일 시즌)
+// 2. 타자 섹션 (상세 스탯 및 추가)
 // ==========================================
 
 app.get('/stats/hitter/:name/:year', async (req, res) => {
@@ -73,8 +73,6 @@ app.get('/stats/hitter/:name/:year', async (req, res) => {
         const s = result.rows[0];
         const ab = parseInt(s.at_bats) || 1;
         const walks = parseInt(s.walks) || 0;
-        
-        // [규칙 적용] 타율/출루율용 안타(pureHits)는 s1만 사용
         const pureHits = parseInt(s.s1) || 0; 
         
         const avg = (pureHits / ab).toFixed(3);
@@ -82,35 +80,9 @@ app.get('/stats/hitter/:name/:year', async (req, res) => {
         const slg = (((parseInt(s.s1) * 1) + (parseInt(s.s2) * 2) + (parseInt(s.s3) * 3) + (parseInt(s.hr) * 4)) / ab).toFixed(3);
         const ops = (parseFloat(obp) + parseFloat(slg)).toFixed(3);
 
-        res.send(renderHitterHTML(s, avg, obp, slg, ops, pureHits, ab));
+        res.send(renderHitterHTML(s, avg, obp, slg, ops, pureHits));
     } catch (err) { res.status(500).send(`오류: ${err.message}`); }
 });
-
-// ==========================================
-// 3. 통산 기록 조회 (s1 기반 계산)
-// ==========================================
-
-app.get('/stats/hitter/career/:name', async (req, res) => {
-    try {
-        const { name } = req.params;
-        const query = `
-            SELECT p.name, p.team, COUNT(s.year) as seasons, SUM(s.games_played) as total_gp,
-            SUM(s.at_bats) as ab, SUM(s.s1) as pure_hits, SUM(s.hr) as total_hr
-            FROM players p JOIN hitter_stats s ON p.id = s.player_id 
-            WHERE p.name = $1 GROUP BY p.id, p.name, p.team`;
-        const result = await pool.query(query, [name.trim()]);
-        
-        if (result.rows.length > 0) {
-            const s = result.rows[0];
-            const content = `통산 ${s.total_gp || 0}경기 | 순수 안타(s1): ${s.pure_hits} | 홈런: ${s.total_hr} | 타석: ${s.ab}`;
-            res.send(renderCareerHTML(s, '타자', content, '#007bff'));
-        } else { res.status(404).send("기록 없음"); }
-    } catch (err) { res.status(500).send("서버 오류"); }
-});
-
-// ==========================================
-// 4. 데이터 추가 (POST)
-// ==========================================
 
 app.post('/add-hitter', async (req, res) => {
     const { name, team, year, ab, s1, s2, s3, hr, bb, gp } = req.body;
@@ -123,10 +95,47 @@ app.post('/add-hitter', async (req, res) => {
 });
 
 // ==========================================
-// 5. HTML 렌더링 함수
+// 3. 투수 섹션 (상세 스탯 및 추가)
 // ==========================================
 
-function renderHitterHTML(s, avg, obp, slg, ops, pureHits, ab) {
+app.get('/stats/pitcher/:name/:year', async (req, res) => {
+    try {
+        const { name, year } = req.params;
+        const query = `SELECT p.name, p.team, s.* FROM players p JOIN pitcher_stats s ON p.id = s.player_id WHERE p.name = $1 AND s.year = $2`;
+        const result = await pool.query(query, [name.trim(), year]);
+        if (result.rows.length === 0) return res.status(404).send("투수 데이터 없음");
+
+        const s = result.rows[0];
+        const ip = parseFloat(s.innings_pitched) || 0.1;
+        const er = parseInt(s.earned_runs) || 0;
+        const hits = parseInt(s.hits_allowed) || 0;
+        const walks = parseInt(s.walks) || 0;
+
+        const era = ((er * 9) / ip).toFixed(2);
+        const whip = ((hits + walks) / ip).toFixed(2);
+
+        res.send(renderPitcherHTML(s, era, whip));
+    } catch (err) { res.status(500).send(`오류: ${err.message}`); }
+});
+
+app.post('/add-pitcher', async (req, res) => {
+    const { name, team, year, wins, losses, ip, er, so, hits, bb } = req.body;
+    try {
+        const playerId = await getPlayerId(name, team);
+        await pool.query(
+            `INSERT INTO pitcher_stats (player_id, year, wins, losses, innings_pitched, earned_runs, strikeouts, hits_allowed, walks) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, 
+            [playerId, year, wins, losses, ip, er, so, hits, bb]
+        );
+        res.json({ success: true, message: "투수 저장 완료" });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==========================================
+// 4. HTML 렌더링 함수들
+// ==========================================
+
+function renderHitterHTML(s, avg, obp, slg, ops, pureHits) {
     return `
         <div style="font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; border: 2px solid #007bff; border-radius: 10px;">
             <h2 style="text-align: center;">⚾ 타자 ${s.name} (${s.year})</h2>
@@ -139,26 +148,26 @@ function renderHitterHTML(s, avg, obp, slg, ops, pureHits, ab) {
                 <hr>
                 <p style="font-size: 0.85em; color: #555;">
                     * 타율/출루율은 <b>순수 안타(${pureHits}개)</b>로 계산되었습니다.<br>
-                    * 2루타(${s.s2}), 3루타(${s.s3}), 홈런(${s.hr})은 장타율에만 반영됩니다.
+                    * 장타율에는 2/3루타 및 홈런 가중치가 반영되었습니다.
                 </p>
             </div><hr>
             <button onclick="window.history.back()" style="width: 100%; padding: 10px; cursor: pointer;">뒤로가기</button>
         </div>`;
 }
 
-function renderCareerHTML(s, type, content, color) {
+function renderPitcherHTML(s, era, whip) {
     return `
-        <div style="font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; border: 4px double ${color}; border-radius: 15px;">
-            <h2 style="text-align: center;">🏆 ${s.name} 통산 (${type})</h2>
-            <p style="text-align: center;">소속: ${s.team} | ${s.seasons}시즌 활약</p><hr>
-            <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; text-align: center;">
-                <h4 style="margin: 0;">${content}</h4>
+        <div style="font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; border: 2px solid #28a745; border-radius: 10px;">
+            <h2 style="text-align: center;">⚾ 투수 ${s.name} (${s.year})</h2>
+            <p style="text-align: center;">소속: ${s.team} | ${s.wins}승 ${s.losses}패</p><hr>
+            <div style="background: #f0fff4; padding: 15px; border-radius: 8px;">
+                <p><b>ERA (방어율):</b> <b style="color: #d9534f; font-size: 1.2em;">${era}</b></p>
+                <p><b>WHIP:</b> ${whip}</p>
+                <p><b>탈삼진:</b> ${s.strikeouts || 0}개 | <b>이닝:</b> ${s.innings_pitched}</p>
             </div><hr>
             <button onclick="window.history.back()" style="width: 100%; padding: 10px; cursor: pointer;">뒤로가기</button>
         </div>`;
 }
-
-// ... (투수 관련 API 및 렌더링 함수는 이전과 동일하게 유지) ...
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log(`서버가 포트 ${port}에서 실행 중입니다.`));
