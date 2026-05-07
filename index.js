@@ -23,10 +23,9 @@ async function getPlayerId(name, team) {
 }
 
 // ==========================================
-// 1. 검색 및 순위 기능
+// 1. 통합 검색 및 순위 기능
 // ==========================================
 
-// 통합 검색 API (타자/투수 구분)
 app.get('/search/player/:name', async (req, res) => {
     try {
         const searchTerm = `%${req.params.name.trim()}%`; 
@@ -45,7 +44,6 @@ app.get('/search/player/:name', async (req, res) => {
     } catch (err) { res.status(500).json({ error: "검색 중 오류 발생" }); }
 });
 
-// 타자 순위 API (s1 기반 규칙 적용)
 app.get('/ranking/hitter', async (req, res) => {
     try {
         const query = `
@@ -60,7 +58,7 @@ app.get('/ranking/hitter', async (req, res) => {
 });
 
 // ==========================================
-// 2. 타자 섹션 (상세 스탯 및 추가)
+// 2. 타자 섹션 (s1 기반 상세 스탯)
 // ==========================================
 
 app.get('/stats/hitter/:name/:year', async (req, res) => {
@@ -95,7 +93,7 @@ app.post('/add-hitter', async (req, res) => {
 });
 
 // ==========================================
-// 3. 투수 섹션 (상세 스탯 및 추가)
+// 3. 투수 섹션 (K/9, BB/9 포함 상세 스탯)
 // ==========================================
 
 app.get('/stats/pitcher/:name/:year', async (req, res) => {
@@ -110,11 +108,14 @@ app.get('/stats/pitcher/:name/:year', async (req, res) => {
         const er = parseInt(s.earned_runs) || 0;
         const hits = parseInt(s.hits_allowed) || 0;
         const walks = parseInt(s.walks) || 0;
+        const strikeouts = parseInt(s.strikeouts) || 0;
 
         const era = ((er * 9) / ip).toFixed(2);
         const whip = ((hits + walks) / ip).toFixed(2);
+        const k9 = ((strikeouts * 9) / ip).toFixed(2);
+        const bb9 = ((walks * 9) / ip).toFixed(2);
 
-        res.send(renderPitcherHTML(s, era, whip));
+        res.send(renderPitcherHTML(s, era, whip, k9, bb9));
     } catch (err) { res.status(500).send(`오류: ${err.message}`); }
 });
 
@@ -132,7 +133,7 @@ app.post('/add-pitcher', async (req, res) => {
 });
 
 // ==========================================
-// 4. HTML 렌더링 함수들
+// 4. HTML 렌더링 함수 (UI)
 // ==========================================
 
 function renderHitterHTML(s, avg, obp, slg, ops, pureHits) {
@@ -151,11 +152,11 @@ function renderHitterHTML(s, avg, obp, slg, ops, pureHits) {
                     * 장타율에는 2/3루타 및 홈런 가중치가 반영되었습니다.
                 </p>
             </div><hr>
-            <button onclick="window.history.back()" style="width: 100%; padding: 10px; cursor: pointer;">뒤로가기</button>
+            <button onclick="window.history.back()" style="width: 100%; padding: 10px; cursor: pointer; background: #eee; border: 1px solid #ccc; border-radius: 5px;">뒤로가기</button>
         </div>`;
 }
 
-function renderPitcherHTML(s, era, whip) {
+function renderPitcherHTML(s, era, whip, k9, bb9) {
     return `
         <div style="font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; border: 2px solid #28a745; border-radius: 10px;">
             <h2 style="text-align: center;">⚾ 투수 ${s.name} (${s.year})</h2>
@@ -163,9 +164,14 @@ function renderPitcherHTML(s, era, whip) {
             <div style="background: #f0fff4; padding: 15px; border-radius: 8px;">
                 <p><b>ERA (방어율):</b> <b style="color: #d9534f; font-size: 1.2em;">${era}</b></p>
                 <p><b>WHIP:</b> ${whip}</p>
-                <p><b>탈삼진:</b> ${s.strikeouts || 0}개 | <b>이닝:</b> ${s.innings_pitched}</p>
+                <hr>
+                <div style="display: flex; justify-content: space-between; background: #fff; padding: 10px; border-radius: 5px; border: 1px solid #e0e0e0;">
+                    <p style="margin:0;"><b>K/9:</b> <span style="color: #28a745;">${k9}</span></p>
+                    <p style="margin:0;"><b>BB/9:</b> <span style="color: #cc6600;">${bb9}</span></p>
+                </div>
+                <p style="margin-top:10px;"><b>총 탈삼진:</b> ${s.strikeouts || 0}개 | <b>이닝:</b> ${s.innings_pitched}</p>
             </div><hr>
-            <button onclick="window.history.back()" style="width: 100%; padding: 10px; cursor: pointer;">뒤로가기</button>
+            <button onclick="window.history.back()" style="width: 100%; padding: 10px; cursor: pointer; background: #eee; border: 1px solid #ccc; border-radius: 5px;">뒤로가기</button>
         </div>`;
 }
 
