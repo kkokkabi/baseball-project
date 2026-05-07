@@ -44,7 +44,7 @@ app.get('/search/player/:name', async (req, res) => {
     } catch (err) { res.status(500).json({ error: "검색 중 오류 발생" }); }
 });
 
-// 타자 순위 API (s1 기반 규칙 엄격 적용)
+// 타자 순위 (s1 기반 규칙 엄격 적용)
 app.get('/ranking/hitter', async (req, res) => {
     try {
         const query = `
@@ -62,7 +62,7 @@ app.get('/ranking/hitter', async (req, res) => {
 });
 
 // ==========================================
-// 2. 타자 섹션 (s1 기반 상세 스탯)
+// 2. 타자 상세 (s1 전용 타율/출루율)
 // ==========================================
 
 app.get('/stats/hitter/:name/:year', async (req, res) => {
@@ -80,7 +80,6 @@ app.get('/stats/hitter/:name/:year', async (req, res) => {
         const s3 = Number(s.s3) || 0;
         const hr = Number(s.hr) || 0;
 
-        // [핵심 규칙] 타율/출루율 계산 시 안타는 오직 s1(단타)만 포함
         const avg = (s1 / ab).toFixed(3);
         const obp = ((s1 + walks) / (ab + walks)).toFixed(3);
         const slg = ((s1 * 1 + s2 * 2 + s3 * 3 + hr * 4) / ab).toFixed(3);
@@ -91,7 +90,7 @@ app.get('/stats/hitter/:name/:year', async (req, res) => {
 });
 
 // ==========================================
-// 3. 투수 섹션 (K/9, BB/9 계산 보강)
+// 3. 투수 상세 (BB/9 출력 보강)
 // ==========================================
 
 app.get('/stats/pitcher/:name/:year', async (req, res) => {
@@ -104,11 +103,11 @@ app.get('/stats/pitcher/:name/:year', async (req, res) => {
 
         const s = result.rows[0];
         
-        // 문자열 방지를 위해 Number()로 명시적 변환
+        // [수정 포인트] DB 컬럼명이 walks일 수도 있고 bb일 수도 있으므로 둘 다 확인합니다.
+        const walks = Number(s.walks !== undefined ? s.walks : s.bb) || 0;
         const ip = Number(s.innings_pitched) || 0.1; 
         const er = Number(s.earned_runs) || 0;
         const hits = Number(s.hits_allowed) || 0;
-        const walks = Number(s.walks) || 0; 
         const strikeouts = Number(s.strikeouts) || 0;
 
         const era = ((er * 9) / ip).toFixed(2);
@@ -121,26 +120,40 @@ app.get('/stats/pitcher/:name/:year', async (req, res) => {
 });
 
 // ==========================================
-// 4. HTML 렌더링 함수 (UI)
+// 4. 데이터 추가 (POST)
 // ==========================================
 
-function renderHitterHTML(s, avg, obp, slg, ops, pureHits) {
+app.post('/add-pitcher', async (req, res) => {
+    const { name, team, year, wins, losses, ip, er, so, hits, bb } = req.body;
+    try {
+        const playerId = await getPlayerId(name, team);
+        // DB 테이블의 컬럼명이 walks라면 아래처럼, bb라면 bb로 고쳐야 합니다.
+        await pool.query(
+            `INSERT INTO pitcher_stats (player_id, year, wins, losses, innings_pitched, earned_runs, strikeouts, hits_allowed, walks) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, 
+            [playerId, year, wins, losses, ip, er, so, hits, bb]
+        );
+        res.json({ success: true, message: "투수 저장 완료" });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ==========================================
+// 5. HTML 렌더링 함수
+// ==========================================
+
+function renderHitterHTML(s, avg, obp, slg, ops, s1) {
     return `
         <div style="font-family: sans-serif; padding: 20px; max-width: 500px; margin: auto; border: 2px solid #007bff; border-radius: 10px;">
             <h2 style="text-align: center;">⚾ 타자 ${s.name} (${s.year})</h2>
-            <p style="text-align: center;">소속: ${s.team} | 경기수: ${s.games_played || 0}</p><hr>
+            <p style="text-align: center;">소속: ${s.team}</p><hr>
             <div style="background: #f0f7ff; padding: 15px; border-radius: 8px;">
                 <p><b>AVG (타율):</b> <span style="color: blue;">${avg}</span></p>
                 <p><b>OBP (출루율):</b> ${obp}</p>
-                <p><b>SLG (장타율):</b> ${slg}</p>
                 <p><b>OPS:</b> <b style="font-size: 1.2em;">${ops}</b></p>
                 <hr>
-                <p style="font-size: 0.85em; color: #555;">
-                    * 타율/출루율은 <b>순수 단타(${pureHits}개)</b>만 반영되었습니다.<br>
-                    * 2,3루타 및 홈런은 장타율에만 반영됩니다.
-                </p>
+                <p style="font-size: 0.85em; color: #555;">* 타율은 <b>순수 단타(${s1}개)</b>로 계산됨</p>
             </div><hr>
-            <button onclick="window.history.back()" style="width: 100%; padding: 10px; cursor: pointer; background: #eee; border: 1px solid #ccc; border-radius: 5px;">뒤로가기</button>
+            <button onclick="window.history.back()" style="width: 100%; padding: 10px; cursor: pointer;">뒤로가기</button>
         </div>`;
 }
 
@@ -153,16 +166,15 @@ function renderPitcherHTML(s, era, whip, k9, bb9, walks) {
                 <p><b>ERA (방어율):</b> <b style="color: #d9534f; font-size: 1.2em;">${era}</b></p>
                 <p><b>WHIP:</b> ${whip}</p>
                 <hr>
-                <div style="display: flex; justify-content: space-between; background: #fff; padding: 10px; border-radius: 5px; border: 1px solid #e0e0e0;">
-                    <p style="margin:0;"><b>K/9 (탈삼진):</b> <span style="color: #28a745; font-weight:bold;">${k9}</span></p>
-                    <p style="margin:0;"><b>BB/9 (볼넷):</b> <span style="color: #cc6600; font-weight:bold;">${bb9}</span></p>
+                <div style="display: flex; justify-content: space-between; background: #fff; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                    <p style="margin:0;"><b>K/9:</b> ${k9}</p>
+                    <p style="margin:0;"><b>BB/9:</b> <span style="color: #cc6600; font-weight: bold;">${bb9}</span></p>
                 </div>
-                <p style="margin-top:10px;"><b>총 탈삼진:</b> ${s.strikeouts || 0}개 | <b>허용 볼넷:</b> ${walks}개</p>
-                <p><b>이닝:</b> ${s.innings_pitched} | <b>자책점:</b> ${s.earned_runs}</p>
+                <p style="margin-top:10px;"><b>허용 볼넷:</b> ${walks}개 | <b>이닝:</b> ${s.innings_pitched}</p>
             </div><hr>
-            <button onclick="window.history.back()" style="width: 100%; padding: 10px; cursor: pointer; background: #eee; border: 1px solid #ccc; border-radius: 5px;">뒤로가기</button>
+            <button onclick="window.history.back()" style="width: 100%; padding: 10px; cursor: pointer;">뒤로가기</button>
         </div>`;
 }
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`서버가 포트 ${port}에서 실행 중입니다.`));
+app.listen(port, () => console.log(`서버 실행 중: ${port}`));
